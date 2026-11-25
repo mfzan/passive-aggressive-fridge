@@ -8,6 +8,7 @@ side in the dispute.
 """
 
 import os
+import tempfile
 
 NOTE = (
     "2:14 AM. Visit #3 tonight, #41 this week. "
@@ -23,10 +24,26 @@ def main() -> None:
     # chmodding it raises PermissionError and fails the entry.
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "entry.txt")
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(NOTE + "\n")
-    # The grader collects outputs as another user, so the entry file
-    # must be world-readable.
+    # Write atomically: a temp file in the same directory, made
+    # world-readable (tempfile defaults to 0600, which the grader,
+    # collecting outputs as another user, could not read), then moved
+    # into place, so a reader never sees a half-written note.
+    fd, tmp_path = tempfile.mkstemp(dir=out_dir, prefix=".entry-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(NOTE + "\n")
+        # The grader collects outputs as another user, so the entry
+        # file must be world-readable.
+        os.chmod(tmp_path, 0o644)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    # os.replace keeps the temp file's mode, but make sure the final
+    # file is 0644 even if the platform ever changes that.
     os.chmod(path, 0o644)
 
 
